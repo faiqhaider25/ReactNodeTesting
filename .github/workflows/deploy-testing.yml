@@ -1,0 +1,99 @@
+name: Deploy to Testing
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # Allows manual trigger button
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run React Tests
+        run: npm run test-react # Runs frontend tests
+
+      - name: Run API Tests
+        run: npm run test-API # Runs backend jest tests
+
+      - name: Build Project
+        run: npm run build-react
+
+      # NOTIFICATION ON FAILURE
+      - name: Send Email on Failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: Deployment Failed - Testing
+          to: ${{ secrets.QA_EMAIL }},${{ secrets.QA2_EMAIL }}
+          from: GitHub Actions
+          body: The build or test failed for the PR. Check GitHub Actions logs.
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST_TESTING }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY_TESTING }}
+          script: |
+            # 1. Define Variables
+            REPO_DIR="ReactNodeTesting"
+            # Uses the PR branch if it exists, otherwise uses the branch that triggered the workflow
+            BRANCH="${{ github.head_ref || github.ref_name }}"
+            if [ -z "$BRANCH" ]; then
+            BRANCH="faiq/feature"
+            fi
+
+            # 2. Clone or Update
+            if [ -d "$REPO_DIR" ]; then
+              cd "$REPO_DIR"
+              echo "Directory exists. Switching to branch: $BRANCH"
+              git fetch --all
+              git checkout $BRANCH
+              git pull origin $BRANCH
+            else
+              echo "Cloning branch: $BRANCH"
+              # Clones the repo into a folder named 'ReactNodeTesting'
+              git clone -b $BRANCH https://github.com/faiqhaider25/ReactNodeTesting.git $REPO_DIR
+              cd "$REPO_DIR"
+            fi
+
+            # 3. Install and Build
+            npm install
+            npm run build-react
+
+            # 4. Restart PM2
+            # Ensure pm2 is running the correct index.js from the root
+            pm2 restart app || pm2 start index.js --name "app"
+
+      # NOTIFICATION ON SUCCESS
+      - name: Send Email on Success
+        if: success()
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: Deployed to Testing Successfully
+          to: ${{ secrets.QA_EMAIL }},${{ secrets.QA2_EMAIL }}
+          from: GitHub Actions
+          body: |
+            Deployment successful!
+            Access the app here: http://${{ secrets.EC2_HOST_TESTING }}:3000
