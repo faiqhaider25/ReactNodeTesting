@@ -52,35 +52,42 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY_TESTING }}
           script: |
-            # 1. Define Variables
-            REPO_DIR="ReactNodeTesting"
-            # Uses the PR branch if it exists, otherwise uses the branch that triggered the workflow
-            BRANCH="${{ github.head_ref || github.ref_name }}"
-            if [ -z "$BRANCH" ]; then
-            BRANCH="faiq/feature"
-            fi
 
-            # 2. Clone or Update
+            echo "[STEP 1] Defining variables..."
+            REPO_DIR="ReactNodeTesting"
+            BRANCH="${{ github.head_ref || github.ref_name }}"
+            echo "[INFO] Initial branch value: $BRANCH"
+            if [ -z "$BRANCH" ]; then
+              echo "[WARN] BRANCH variable is empty, defaulting to 'faiq/feature'"
+              BRANCH="faiq/feature"
+            fi
+            echo "[INFO] Using branch: $BRANCH"
+
+            echo "[STEP 2] Checking if repo directory exists..."
             if [ -d "$REPO_DIR" ]; then
+              echo "[INFO] Directory '$REPO_DIR' exists. Switching to repo directory."
               cd "$REPO_DIR"
-              echo "Directory exists. Switching to branch: $BRANCH"
+              echo "[STEP 2.1] Fetching all branches..."
               git fetch --all
+              echo "[STEP 2.2] Checking out branch: $BRANCH"
               git checkout $BRANCH
+              echo "[STEP 2.3] Pulling latest changes for branch: $BRANCH"
               git pull origin $BRANCH
             else
-              echo "Cloning branch: $BRANCH"
-              # Clones the repo into a folder named 'ReactNodeTesting'
+              echo "[INFO] Directory '$REPO_DIR' does not exist. Cloning repository."
+              echo "[STEP 2.4] Cloning branch: $BRANCH from remote."
               git clone -b $BRANCH https://github.com/faiqhaider25/ReactNodeTesting.git $REPO_DIR
               cd "$REPO_DIR"
             fi
 
-            # 3. Install and Build
+            echo "[STEP 3] Installing dependencies with npm..."
             npm install
+            echo "[STEP 4] Building project with npm run build-react..."
             npm run build-react
 
-            # 4. Restart PM2
-            # Ensure pm2 is running the correct index.js from the root
+            echo "[STEP 5] Restarting or starting app with PM2..."
             pm2 restart app || pm2 start index.js --name "app"
+            echo "[COMPLETE] Deployment script finished."
 
       # NOTIFICATION ON SUCCESS
       - name: Send Email on Success
