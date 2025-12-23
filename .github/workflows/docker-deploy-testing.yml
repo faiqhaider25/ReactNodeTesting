@@ -75,27 +75,75 @@ jobs:
 
             # Login to ECR inside EC2 (using instance role or configured CLI)
             echo "[STEP 2] Logging into ECR..."
-            aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 715841332204.dkr.ecr.us-east-2.amazonaws.com
+            echo "User: $(whoami)"
+            echo "Command: aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 715841332204.dkr.ecr.us-east-2.amazonaws.com"
+            login_output=$(aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 715841332204.dkr.ecr.us-east-2.amazonaws.com 2>&1)
+            echo "Output: $login_output"
+            if [ $? -eq 0 ]; then
+              echo "Login: Success"
+            else
+              echo "Login: Failed"
+            fi
 
             echo "[STEP 3] Pulling latest image..."
-            docker pull 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest
+            echo "User: $(whoami)"
+            echo "Command: docker pull 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest"
+            pull_output=$(docker pull 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest 2>&1)
+            echo "Output: $pull_output"
+            if [ $? -eq 0 ]; then
+              echo "Pull: Success"
+            else
+              echo "Pull: Failed"
+            fi
 
             # CRITICAL: Clean up old container to free up the port and name
             echo "[STEP 4] Cleaning up old container..."
             if [ "$(docker ps -a -q -f name=react-node-app)" ]; then
                 echo "Found existing container. Stopping and removing..."
-                docker stop react-node-app
-                docker rm react-node-app
+                echo "User: $(whoami)"
+                echo "Command: docker stop react-node-app"
+                stop_output=$(docker stop react-node-app 2>&1)
+                echo "Output: $stop_output"
+                if [ $? -eq 0 ]; then
+                  echo "Stop: Success"
+                else
+                  echo "Stop: Failed"
+                fi
+                echo "User: $(whoami)"
+                echo "Command: docker rm react-node-app"
+                rm_output=$(docker rm react-node-app 2>&1)
+                echo "Output: $rm_output"
+                if [ $? -eq 0 ]; then
+                  echo "Remove: Success"
+                else
+                  echo "Remove: Failed"
+                fi
             else
                 echo "No existing container found. Proceeding."
             fi
 
             echo "[STEP 5] Running new container..."
-            # Running detached (-d), mapping host 3000 to container 3000 (-p), with specific name
-            docker run -d -p 3001:3000 --name react-node-app 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest
+            # Running detached (-d), mapping host 3001 to container 3000 (-p), with specific name
+            echo "User: $(whoami)"
+            echo "Command: docker run -d -p 3001:3000 --name react-node-app 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest"
+            run_output=$(docker run -d -p 3001:3000 --name react-node-app 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest 2>&1)
+            echo "Output: $run_output"
+            if [ $? -eq 0 ]; then
+              echo "Run: Success"
+            else
+              echo "Run: Failed"
+            fi
 
             echo "[STEP 6] Cleaning up credentials..."
-            docker logout 715841332204.dkr.ecr.us-east-2.amazonaws.com
+            echo "User: $(whoami)"
+            echo "Command: docker logout 715841332204.dkr.ecr.us-east-2.amazonaws.com"
+            logout_output=$(docker logout 715841332204.dkr.ecr.us-east-2.amazonaws.com 2>&1)
+            echo "Output: $logout_output"
+            if [ $? -eq 0 ]; then
+              echo "Logout: Success"
+            else
+              echo "Logout: Failed"
+            fi
 
             echo "[COMPLETE] Deployment successful. App is running."
 
@@ -114,7 +162,7 @@ jobs:
           body: |
             Docker Deployment successful!
             The container 'react-node-app' is updated.
-            Access the app here: http://${{ secrets.EC2_HOST_TESTING }}:3000
+            Access the app here: http://${{ secrets.EC2_HOST_TESTING }}:3001
 
       # NOTIFICATION ON FAILURE (DEPLOY)
       - name: Send Email on Deployment Failure
