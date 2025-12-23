@@ -127,8 +127,8 @@ jobs:
 
             echo "[STEP 5] Running new container..."
             echo "User: $(whoami)"
-            echo "Command: docker run -d -p 3001:3000..."
-            run_output=$(docker run -d -p 3001:3000 --name react-node-app 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest 2>&1)
+            echo "Command: docker run -d -p 80:3000..."
+            run_output=$(docker run -d -p 80:3000 --name react-node-app 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest 2>&1)
             exit_code=$?
             echo "Output: $run_output"
             if [ $exit_code -eq 0 ]; then
@@ -158,7 +158,7 @@ jobs:
           body: |
             Docker Deployment successful!
             The container 'react-node-app' is updated.
-            Access the app here: http://${{ secrets.EC2_HOST_TESTING }}:3001
+            Access the app here: http://${{ secrets.EC2_HOST_TESTING }}
 
       # NOTIFICATION ON FAILURE (DEPLOY)
       - name: Send Email on Deployment Failure
