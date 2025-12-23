@@ -92,7 +92,7 @@ jobs:
 
             echo "[STEP 5] Running new container..."
             # Running detached (-d), mapping host 3000 to container 3000 (-p), with specific name
-            docker run -d -p 3000:3000 --name react-node-app 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest
+            docker run -d -p 3001:3000 --name react-node-app 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest
 
             echo "[STEP 6] Cleaning up credentials..."
             docker logout 715841332204.dkr.ecr.us-east-2.amazonaws.com
