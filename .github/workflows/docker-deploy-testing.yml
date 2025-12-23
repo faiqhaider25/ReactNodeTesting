@@ -1,0 +1,179 @@
+name: Deploy Docker to Testing
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # Allows manual trigger
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REPOSITORY: 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting
+  CONTAINER_NAME: react-node-app
+  IMAGE_TAG: latest
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # We use the official action to configure AWS credentials for the runner environment
+      # This effectively performs 'aws configure' safely using secrets
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ECR_ACCESS_ID }}
+          aws-secret-access-key: ${{ secrets.ECR_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        run: |
+          echo "[STEP 1] Logging into ECR..."
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin 715841332204.dkr.ecr.us-east-2.amazonaws.com
+
+      - name: Build, Tag, and Push Docker Image
+        run: |
+          echo "[STEP 2] Building Docker image..."
+          docker build -t react-node-app .
+
+          echo "[STEP 3] Tagging image as: $ECR_REPOSITORY:$IMAGE_TAG"
+          docker tag react-node-app:latest $ECR_REPOSITORY:$IMAGE_TAG
+
+          echo "[STEP 4] Pushing image to ECR..."
+          docker push $ECR_REPOSITORY:$IMAGE_TAG
+
+          echo "[SUCCESS] Image successfully pushed to ECR."
+
+      # NOTIFICATION ON FAILURE (BUILD/PUSH)
+      - name: Send Email on Failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: Docker Build Failed - Testing
+          to: ${{ secrets.QA_EMAIL }},${{ secrets.QA2_EMAIL }}
+          from: GitHub Actions
+          body: |
+            The Docker Build/Push failed.
+
+            View the exact error log here:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST_TESTING }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY_TESTING }}
+          script: |
+            echo "[STEP 1] Initializing Deployment on EC2..."
+
+            # --- NEW STEP: FORCE CLEANUP BEFORE PULL ---
+            echo "[STEP 1.5] Cleaning up disk space..."
+            echo "User: $(whoami)"
+            echo "Command: docker system prune -a -f"
+            # We run this blindly to clear space. We don't exit if it fails (it might fail if docker isn't running, but we want to try).
+            docker system prune -a -f
+            echo "Disk space status:"
+            df -h /
+
+            echo "[STEP 2] Logging into ECR..."
+            echo "User: $(whoami)"
+            echo "Command: aws ecr get-login..."
+            login_output=$(aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 715841332204.dkr.ecr.us-east-2.amazonaws.com 2>&1)
+            exit_code=$?
+            echo "Output: $login_output"
+            if [ $exit_code -eq 0 ]; then
+              echo "Login: Success"
+            else
+              echo "Login: Failed"
+              exit 1  # <--- CRITICAL: STOPS SCRIPT ON FAILURE
+            fi
+
+            echo "[STEP 3] Pulling latest image..."
+            echo "User: $(whoami)"
+            echo "Command: docker pull ..."
+            pull_output=$(docker pull 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest 2>&1)
+            exit_code=$?
+            echo "Output: $pull_output"
+            if [ $exit_code -eq 0 ]; then
+              echo "Pull: Success"
+            else
+              echo "Pull: Failed (Likely Disk Space)"
+              exit 1  # <--- CRITICAL: STOPS SCRIPT IF DISK FULL
+            fi
+
+            echo "[STEP 4] Cleaning up old container..."
+            if [ "$(docker ps -a -q -f name=react-node-app)" ]; then
+                echo "Found existing container. Stopping and removing..."
+                
+                stop_output=$(docker stop react-node-app 2>&1)
+                echo "Stop Output: $stop_output"
+                
+                rm_output=$(docker rm react-node-app 2>&1)
+                echo "Remove Output: $rm_output"
+            else
+                echo "No existing container found. Proceeding."
+            fi
+
+            echo "[STEP 5] Running new container..."
+            echo "User: $(whoami)"
+            echo "Command: docker run -d -p 80:3000..."
+            run_output=$(docker run -d -p 80:3000 --name react-node-app 715841332204.dkr.ecr.us-east-2.amazonaws.com/devops-assignment/reactnodetesting:latest 2>&1)
+            exit_code=$?
+            echo "Output: $run_output"
+            if [ $exit_code -eq 0 ]; then
+              echo "Run: Success"
+            else
+              echo "Run: Failed"
+              exit 1  # <--- CRITICAL: STOPS SCRIPT ON FAILURE
+            fi
+
+            echo "[STEP 6] Cleaning up credentials..."
+            docker logout 715841332204.dkr.ecr.us-east-2.amazonaws.com
+
+            echo "[COMPLETE] Deployment successful. App is running."
+
+      # NOTIFICATION ON SUCCESS
+      - name: Send Email on Success
+        if: success()
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: Deployed Docker App to Testing
+          to: ${{ secrets.QA_EMAIL }},${{ secrets.QA2_EMAIL }}
+          from: GitHub Actions
+          body: |
+            Docker Deployment successful!
+            The container 'react-node-app' is updated.
+            Access the app here: http://${{ secrets.EC2_HOST_TESTING }}
+
+      # NOTIFICATION ON FAILURE (DEPLOY)
+      - name: Send Email on Deployment Failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: Deployment to EC2 Failed
+          to: ${{ secrets.QA_EMAIL }},${{ secrets.QA2_EMAIL }}
+          from: GitHub Actions
+          body: |
+            The Deployment to EC2 failed.
+
+            View the exact error log here:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
